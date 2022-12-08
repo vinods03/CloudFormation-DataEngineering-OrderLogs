@@ -32,8 +32,10 @@ The agent.json should look like this:
 
 
 Restart the kinesis agent using below commands:
-sudo service aws-kinesis-agent stop
-sudo service aws-kinesis-agent start
+sudo service aws-kinesis-agent stop;
+
+sudo service aws-kinesis-agent start;
+
 
 Then generate the logs using the command after cd ~ (to go to home directory): 
 sudo ./LogGenerator.py 250000 (note: 250000 represents the number of orders)
