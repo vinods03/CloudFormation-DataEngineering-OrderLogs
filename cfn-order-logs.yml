@@ -1,0 +1,407 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Resources for order logs
+
+Parameters:
+
+  OrderLogsEC2KeyPair: 
+    Description: The Key Pair to use for this EC2 Instance
+    Type: AWS::EC2::KeyPair::KeyName
+
+  OrderLogsEC2AZ: 
+    Description: The AZ in which the EC2 Instance needs to be provisioned
+    Type: String
+    Default: us-east-1a
+    AllowedValues:
+      - us-east-1a
+      - us-east-1b
+      - us-east-1c
+
+  OrderLogsEC2Environment:
+    Description: The Environment in which the EC2 Instance needs to be provisioned
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - uat
+      - prod
+
+  LandingAreaS3BucketName:
+    Description: Bucket name must be globally unique and must not contain spaces or uppercase letters. See rules for bucket naming 
+    Type: String
+    MinLength: 8
+
+  KinesisFirehoseName: 
+    Description: Name of the Kinesis firehose
+    Type: String
+    MinLength: 8
+  
+  QueueName:
+    Description: The name of the Queue that acts as a decoupler between S3 Landing area and the lambda that moves the data to S3 Staging area
+    Type: String
+    MinLength: 5
+
+  GlueCatalogDatabaseName: 
+    Description: The name of the Glue Database in which the Glue Catalog table needs to be created
+    Type: String
+    MinLength: 5
+
+  GlueJobName:
+    Description: The name of the Glue Job that processes data from S3 to Redshift
+    Type: String
+    MinLength: 5
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'EC2 Instance Configuration'
+        Parameters:
+          - OrderLogsEC2KeyPair
+          - OrderLogsEC2AZ
+          - OrderLogsEC2Environment
+      - Label:
+          default: 'S3 Configuration'
+        Parameters:
+          - LandingAreaS3BucketName
+      - Label:
+          default: 'Kinesis Configuration'
+        Parameters:
+          - KinesisFirehoseName
+      - Label: 
+          default: 'Queue Configuration'
+        Parameters:
+          - QueueName
+      - Label:
+          default: 'Glue Configuration'
+        Parameters:
+          - GlueCatalogDatabaseName
+          - GlueJobName
+          
+Mappings:
+
+  OrderLogsEC2InstanceTypeMapping:
+    dev: 
+      Type: t2.micro
+    uat:
+      Type: t2.small
+    prod:
+      Type: t2.medium
+    
+Resources:
+
+  OrderLogsEC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group that allows SSH
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+
+  OrderLogsEC2KinesisFirehoseWritePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement: 
+          Effect: Allow
+          Action: 
+            - firehose:PutRecord
+            - firehose:PutRecordBatch
+          Resource:
+            - !GetAtt OrderLogsKinesisFirehose.Arn
+
+  OrderLogsEC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref OrderLogsEC2KinesisFirehoseWritePolicy
+            
+  OrderLogsEC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      InstanceProfileName: order-logs-instance-profile
+      Path: /
+      Roles: 
+       - !Ref OrderLogsEC2InstanceRole
+
+  OrderLogsEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0b0dcb5067f052a63
+      KeyName: !Ref OrderLogsEC2KeyPair
+      AvailabilityZone: !Ref OrderLogsEC2AZ
+      InstanceType: !FindInMap
+        - OrderLogsEC2InstanceTypeMapping
+        - !Ref OrderLogsEC2Environment
+        - Type
+      SecurityGroups: 
+        - !Ref OrderLogsEC2SecurityGroup
+      IamInstanceProfile: !Ref OrderLogsEC2InstanceProfile
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+          sudo yum install -y aws-kinesis-agent
+          cd /home/ec2-user
+          wget http://media.sundog-soft.com/AWSBigData/LogGenerator.zip
+          unzip LogGenerator.zip
+          chmod a+x LogGenerator.py
+          sudo mkdir /var/log/cadabra
+          sudo chkconfig aws-kinesis-agent on
+ 
+  OrderLogsLandingToStagingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Ref QueueName
+      VisibilityTimeout: 240
+
+  OrderLogsLandingToStagingQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: 
+              Service: s3.amazonaws.com
+            Action:
+              - 'SQS:SendMessage'
+            Resource: !GetAtt OrderLogsLandingToStagingQueue.Arn
+      Queues:
+        - !Ref OrderLogsLandingToStagingQueue
+            
+  OrderLogsS3LandingArea:
+    Type: AWS::S3::Bucket
+    DependsOn: OrderLogsLandingToStagingQueue
+    Properties:
+      BucketName: !Ref LandingAreaS3BucketName
+      NotificationConfiguration: 
+        QueueConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Queue: !GetAtt OrderLogsLandingToStagingQueue.Arn
+
+  OrderLogsS3StagingArea:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: order-logs-staging-area
+
+  OrderLogsGlueS3Policy:
+    Type: AWS::IAM::ManagedPolicy
+    DependsOn: OrderLogsS3LandingArea
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Effect: Allow
+          Action: 
+            - s3:*
+          Resource: "*"
+
+  OrderLogsGlueS3Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref OrderLogsGlueS3Policy
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  OrderLogsGlueCatalogDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref GlueCatalogDatabaseName
+
+  OrderLogsGlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: order-logs-glue-crawler
+      Role: !GetAtt OrderLogsGlueS3Role.Arn
+      DatabaseName: !Ref OrderLogsGlueCatalogDatabase
+      TablePrefix: order_logs_
+      Targets:
+        S3Targets:
+          - Path: !Join [ "/", [ !Ref OrderLogsS3LandingArea, main/] ]
+        
+  OrderLogsKinesisFirehosePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:AbortMultipartUpload
+              - s3:GetBucketLocation
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:ListBucketMultipartUploads
+              - s3:PutObject
+            Resource:
+              - !GetAtt OrderLogsS3LandingArea.Arn
+              - !Join [ "", [ !GetAtt OrderLogsS3LandingArea.Arn, /*] ]
+
+  OrderLogsKinesisFirehoseRole:
+    Type: AWS::IAM::Role
+    DependsOn: OrderLogsKinesisFirehosePolicy
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - firehose.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref OrderLogsKinesisFirehosePolicy
+
+  OrderLogsKinesisFirehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    DependsOn: 
+      - OrderLogsS3LandingArea
+      - OrderLogsKinesisFirehoseRole
+    Properties: 
+      DeliveryStreamName: !Ref KinesisFirehoseName
+      S3DestinationConfiguration: 
+        BucketARN: !GetAtt OrderLogsS3LandingArea.Arn
+        BufferingHints: 
+          IntervalInSeconds: 60
+          SizeInMBs: 5
+        CompressionFormat: UNCOMPRESSED
+        Prefix: main/
+        ErrorOutputPrefix: error/
+        RoleARN: !GetAtt OrderLogsKinesisFirehoseRole.Arn
+
+  OrderLogsLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSQSFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  
+  OrderLogsLambdaProcessor:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: OrderLogsLambdaProcessor
+      Handler: order_logs_lambda_processor.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt OrderLogsLambdaRole.Arn
+      MemorySize: 1024
+      Timeout: 180
+      Code:
+        S3Bucket: order-logs-code-repo
+        S3Key: order_logs_lambda_processor.zip
+
+  LambdaFunctionEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      EventSourceArn: !GetAtt OrderLogsLandingToStagingQueue.Arn
+      FunctionName: !GetAtt OrderLogsLambdaProcessor.Arn
+
+  OrderLogsGlueRedshiftConnection:
+    Type: 'AWS::Glue::Connection'
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      ConnectionInput:
+        ConnectionProperties:
+          Name: redshift-connection-for-glue
+          Type: JDBC
+          JDBC_CONNECTION_URL: "jdbc:redshift://order-logs-cluster.cal5w1bhifg1.us-east-1.redshift.amazonaws.com:5439/dev"
+          USERNAME: awsuser
+          PASSWORD: Test1234
+        ConnectionType: JDBC
+        Name: redshift-connection-for-glue
+        PhysicalConnectionRequirements:
+          AvailabilityZone: us-east-1e
+          SubnetId: subnet-0667e65c85e5e24b9
+          SecurityGroupIdList:
+            - sg-0bf812af6a02aae9a
+          
+
+  OrderLogsGlueS3RedshiftRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/SecretsManagerReadWrite
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+        - arn:aws:iam::aws:policy/AmazonRedshiftFullAccess
+        - arn:aws:iam::aws:policy/AWSGlueConsoleFullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  OrderLogsGlueJob:
+    DependsOn: 
+      - OrderLogsGlueS3RedshiftRole
+      - OrderLogsGlueRedshiftConnection
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Ref GlueJobName
+      Command:
+        Name: pythonshell
+        PythonVersion: 3
+        ScriptLocation: s3://order-logs-code-repo/order_logs_glue_script.py
+      Role: !Ref OrderLogsGlueS3RedshiftRole
+      Connections:
+        Connections:
+          - !Ref OrderLogsGlueRedshiftConnection
+
+  OrderLogsGlueTrigger:
+    Type: AWS::Glue::Trigger
+    DependsOn: OrderLogsGlueJob
+    Properties:
+      Name: order-logs-trigger
+      Description: Scheduled trigger for processing order logs from s3 into redshift
+      Type: SCHEDULED
+      Schedule: "cron(0/15 * ? * MON-FRI *)"
+      StartOnCreation: true
+      Actions: 
+      - JobName: !Ref OrderLogsGlueJob
+      
+ 
+        
