@@ -17,7 +17,7 @@ How to use the stack ?
 Please go through the "CloudFormation Stack details.docx" and create the resources that are not part of the stack (ex: Redshift cluster, DynamoDB table etc).
 Make sure you change the lambda script and glue script as per your S3 Staging area bucket name, Glue crawler name and Secrets manager name.
 Make sure you copy order_logs_lambda_processor.zip and order_logs_glue_script.py into an appropriate S3 bucket and reference these paths in the CloudFormation Stack, instead of my code repository. 
-Now create the stack using cfn-order-logs.yml.
+Now create the stack using **cfn-order-logs.yml**.
 
 
 Once the stack is created, log on to the EC2 instance and execute the below steps to generate data that needs to be processed through the various layers into the Redshift cluster.
