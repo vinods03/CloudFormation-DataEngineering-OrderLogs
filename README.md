@@ -32,7 +32,7 @@ The agent.json should look like this:
 ![image](https://user-images.githubusercontent.com/97652947/206458540-6ffde8bb-f87e-4e7f-a13f-7e97579b1155.png)
 
 
-Restart the kinesis agent using below commands:
+Restart the kinesis agent using below commands:  
 sudo service aws-kinesis-agent stop  
 sudo service aws-kinesis-agent start  
 
