@@ -4,8 +4,8 @@ An end-to-end Data Engineering project on AWS along with the CloudFormation stac
 
 What is this project about ?
 
-This is an extension of the Cloud Data Engineering project in https://github.com/vinods03/AWS-DataEngineering-OrderLogs
-Order logs data that our system receives on an EC2 instance is processed near real-time into Redshift cluster.
+This is an extension of the project in https://github.com/vinods03/AWS-DataEngineering-OrderLogs
+Order logs data that our system receives on an EC2 instance, is processed near real-time into Redshift cluster.
 The major enhancement here is the automation of the entire resource provisiong through a CloudFormation Stack.
 
 A minor enhancement is the addition of an SQS queue as the notification target for the S3 landing area.
