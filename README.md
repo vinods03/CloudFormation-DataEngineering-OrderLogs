@@ -23,18 +23,25 @@ _How to generate the logs and test the stack ?_
 
 Once the stack is created, log on to the EC2 instance and execute the below steps to generate data that needs to be processed through the various layers into the Redshift cluster.
 
-cd /etc/aws-kinesis
-sudo nano agent.json -> Give the source path - the path where logs will be sent / generated and the target firehose name. 
-Update the firehose.endpoint if region is other than us-east-
-The agent.json should look like this:
+cd /etc/aws-kinesis  
+
+sudo nano agent.json -> Give the source path - the path where logs will be sent / generated and the target firehose name.   
+
+Update the firehose.endpoint if region is other than us-east-1.  
+
+The agent.json should look like this:  
+
 
 ![image](https://user-images.githubusercontent.com/97652947/206458540-6ffde8bb-f87e-4e7f-a13f-7e97579b1155.png)
 
 
 Restart the kinesis agent using below commands:
-sudo service aws-kinesis-agent stop;
+sudo service aws-kinesis-agent stop  
 
-sudo service aws-kinesis-agent start;
+
+sudo service aws-kinesis-agent start  
+
+
 
 
 Then generate the logs using the command after cd ~ (to go to home directory): 
