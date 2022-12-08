@@ -38,7 +38,8 @@ sudo service aws-kinesis-agent start
 
 
 Then generate the logs using the command after cd ~ (to go to home directory):  
-sudo ./LogGenerator.py 250000 (note: 250000 represents the number of orders)  
+sudo ./LogGenerator.py 250000 (note: 250000 represents the number of orders)    
+Note that the LogGenerator.py script is downloaded into the home directory of the EC2 instance, as part of the CloudFormation stack itself.  
 
 You should be able to see the data flowing through the S3 landing area, S3 staging area, Redshift cluster and the DynamoDB audit table.
 You should also be able to query the landing area data in Athena as per our design.
