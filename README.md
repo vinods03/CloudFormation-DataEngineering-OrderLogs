@@ -2,7 +2,7 @@
 An end-to-end Data Engineering project on AWS along with the CloudFormation stack to provision all the required resources
 
 
-_What is this project about ?
+_What is this project about ?_
 
 This is an extension of the project in https://github.com/vinods03/AWS-DataEngineering-OrderLogs
 Order logs data that our system receives on an EC2 instance, is processed near real-time into Redshift cluster.
@@ -12,7 +12,7 @@ A minor enhancement is the addition of an SQS queue as the notification target f
 The lambda function that processes the data from S3 landing area to S3 staging area will now read from the SQS queue instead of reading directly from the S3 bucket.
 In case, lambda throttles or for some reason unable to process a huge number of files coming in to the S3 landing area, having a SQS queue will ensure notifications are not lost.
 
-_How to use the stack ?
+_How to use the stack ?_
 
 Please go through the "CloudFormation Stack details.docx" and create the resources that are not part of the stack (ex: Redshift cluster, DynamoDB table etc).
 Make sure you change the lambda script and glue script as per your S3 Staging area bucket name, Glue crawler name and Secrets manager name.
